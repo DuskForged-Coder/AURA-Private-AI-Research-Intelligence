@@ -32,6 +32,8 @@ Every contribution helps support independent engineering and open-source develop
 
 </p>
 
+> **Current implementation:** A locally runnable MVP supports account sign-in, document upload and deletion, passage search, and evidence-backed answers with citations. See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for verified scope, setup notes, and remaining validation.
+
 ---
 
 ## 1. Introduction
@@ -620,20 +622,18 @@ Base path:
 |---|---|---|
 | POST | /auth/register | Register user |
 | POST | /auth/login | Authenticate user |
-| POST | /documents/upload | Upload document |
+| GET | /auth/me | Get the authenticated user |
+| POST | /documents | Upload document |
 | GET | /documents | List accessible documents |
 | GET | /documents/{id} | Document details |
 | DELETE | /documents/{id} | Delete document |
-| POST | /collections | Create collection |
-| GET | /collections | List collections |
 | POST | /search | Search document collection |
-| POST | /conversations | Create conversation |
-| POST | /conversations/{id}/messages | Ask a question |
+| POST | /ask | Ask a question and receive citations |
+| GET | /conversations | List conversations |
 | GET | /conversations/{id} | Retrieve conversation |
 | GET | /health | Service health |
-| GET | /metrics | Application metrics, subject to authorization |
 
-These are proposed API contracts. They will be finalized and documented as implementation progresses.
+The MVP currently implements these endpoints. Organization, collection-management, and metrics endpoints remain future work.
 
 ---
 
@@ -744,18 +744,18 @@ AURA will be developed through incremental, testable milestones.
 
 | Phase | Development scope | Status |
 |---|---|---|
-| Phase 1 | Requirements and architecture | Planned |
-| Phase 2 | Backend foundation | Planned |
-| Phase 3 | Document ingestion | Planned |
-| Phase 4 | Embeddings and vector storage | Planned |
-| Phase 5 | Semantic and hybrid retrieval | Planned |
-| Phase 6 | RAG and source citations | Planned |
-| Phase 7 | Local LLM integration | Planned |
-| Phase 8 | Frontend and research interface | Planned |
-| Phase 9 | Authentication and multi-tenancy | Planned |
+| Phase 1 | Requirements and architecture | Complete |
+| Phase 2 | Backend foundation | MVP implemented |
+| Phase 3 | Document ingestion | MVP implemented |
+| Phase 4 | Embeddings and vector storage | MVP implemented |
+| Phase 5 | Semantic and hybrid retrieval | Local MVP; advanced ranking planned |
+| Phase 6 | RAG and source citations | Evidence-backed MVP implemented |
+| Phase 7 | Local LLM integration | Optional local Ollama integration |
+| Phase 8 | Frontend and research interface | MVP implemented |
+| Phase 9 | Authentication and multi-tenancy | Personal accounts implemented; organization tenancy planned |
 | Phase 10 | Evaluation and benchmarking | Planned |
-| Phase 11 | Security testing and optimization | Planned |
-| Phase 12 | Deployment and public release | Planned |
+| Phase 11 | Security testing and optimization | Initial ownership tests; full review planned |
+| Phase 12 | Deployment and public release | Local Compose setup; production release planned |
 
 ## Release Strategy
 
@@ -865,96 +865,76 @@ A complete user workflow should be tested:
 
 # 15. Installation and Development
 
-The following describes the intended local development environment. Commands and configuration will be finalized as the corresponding implementation files are added.
+The following instructions start the current local MVP.
 
 ## Prerequisites
 
 - Python 3.11 or newer
 - Node.js LTS
-- PostgreSQL with pgvector
-- Docker and Docker Compose
-- Ollama
+- Docker and Docker Compose (recommended for the complete local stack)
+- PostgreSQL with pgvector (if running the API without Compose)
+- Ollama (optional; local extractive answers work without it)
 - Git
 
 ## Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/AURA-Private-AI-Research-Intelligence.git
+git clone https://github.com/DuskForged-Coder/AURA-Private-AI-Research-Intelligence.git
 
 cd AURA-Private-AI-Research-Intelligence
 ```
 
-## Backend Environment
+## Start the Complete Local Stack
 
 ```bash
-cd apps/api
+docker compose up --build
+```
 
+Open `http://localhost:3000` for the web application and `http://localhost:8000/docs` for the API documentation. The Compose ports bind to loopback for local development.
+
+## Run Services Without Compose
+
+Install the backend from the repository root:
+
+```bash
 python -m venv .venv
-
 source .venv/bin/activate
-
-pip install -e ".[dev]"
+pip install -e "backend[dev]"
 ```
 
-## Frontend Environment
+Configure a reachable PostgreSQL database with pgvector, then start the API:
 
 ```bash
-cd apps/web
-
-npm install
+cd backend
+alembic upgrade head
+uvicorn app.main:app --reload
 ```
 
-## Infrastructure
-
-Once the Docker Compose configuration is implemented:
+In another terminal, start the frontend:
 
 ```bash
-docker compose up -d
+npm --prefix services/web install
+npm --prefix services/web run dev
 ```
 
 ## Local AI
 
-Install and configure Ollama, then select compatible embedding and language models.
-
-Example model setup:
+Ollama is optional. To use local model-backed embeddings and answers, install Ollama and pull compatible models:
 
 ```bash
 ollama pull nomic-embed-text
+ollama pull qwen2.5:7b
 ```
 
-The language model should be selected according to available memory, context requirements and response-quality benchmarks.
-
-## Start Development
-
-The eventual development commands will be documented in the repository after the application entry points are implemented.
+Without Ollama, AURA uses deterministic local hashed-token vectors and extractive answers. This fallback does not require cloud credentials; it is less semantically capable than a configured embedding model. See [DEVELOPMENT.md](./DEVELOPMENT.md) for additional local setup and privacy details.
 
 ---
 
 # 16. Configuration
 
-AURA will use environment-based configuration.
+AURA uses environment-based configuration. Copy `.env.example` to `.env` to customize local development. It documents the supported database, upload, Ollama, embedding, CORS, and frontend API settings.
 
-An example `.env.example` will contain variables similar to:
-
-```env
-APP_ENV=development
-APP_NAME=AURA
-
-DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/aura
-
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_CHAT_MODEL=your-selected-chat-model
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-
-UPLOAD_DIRECTORY=./storage/uploads
-MAX_UPLOAD_SIZE_MB=25
-
-JWT_SECRET_KEY=replace-with-a-secure-random-secret
-```
-
-These values are examples, not production credentials.
-
-Actual secrets must never be committed to Git.
+If `JWT_SECRET_KEY` is unset, the API generates a random process-local signing key, so tokens expire on restart. Set a private random secret for persistent local sessions. Never commit `.env` files or other secrets to Git.
 
 ---
 
@@ -1052,7 +1032,7 @@ All contributions must follow the repository's contribution and security guideli
 
 **Local AI:** Ollama and Sentence Transformers
 
-**Repository:** To be linked after publication.
+**Repository:** [DuskForged-Coder/AURA-Private-AI-Research-Intelligence](https://github.com/DuskForged-Coder/AURA-Private-AI-Research-Intelligence).
 
 **License:** To be selected and added before public distribution.
 
